@@ -103,8 +103,8 @@ async def demo_reset():
 
 
 @api_router.post("/demo/next-event")
-async def demo_next_event():
-    result = await run_in_threadpool(service.next_event)
+async def demo_next_event(force: bool = False):
+    result = await run_in_threadpool(service.next_event, force)
     if result.get("error") == "not_seeded":
         raise HTTPException(status_code=409, detail="Demo not seeded. Call /api/demo/reset first.")
     return result
@@ -129,6 +129,29 @@ async def users_timeline(user_id: str):
     if timeline is None:
         raise HTTPException(status_code=404, detail="User not found")
     return {"user_id": user_id, "events": timeline}
+
+
+@api_router.get("/users/{user_id}/evidence")
+async def users_evidence(user_id: str):
+    result = await run_in_threadpool(service.user_evidence, user_id)
+    if result.get("error") == "user_not_found":
+        raise HTTPException(status_code=404, detail="User not found")
+    if result.get("error") == "no_trusted_events":
+        raise HTTPException(status_code=422, detail="User has no trusted events")
+    return result
+
+
+@api_router.get("/users/{user_id}/alerts")
+async def users_alerts(user_id: str):
+    result = await run_in_threadpool(service.user_alerts, user_id)
+    if result.get("error") == "user_not_found":
+        raise HTTPException(status_code=404, detail="User not found")
+    return result
+
+
+@api_router.get("/evaluation")
+async def evaluation():
+    return await run_in_threadpool(service.evaluation)
 
 
 @api_router.post("/investigate")

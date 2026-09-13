@@ -13,6 +13,7 @@ import { ContextInspector } from "./ContextInspector";
 import { AnalystActions } from "./AnalystActions";
 import { AuditTrail } from "./AuditTrail";
 import { AssistantDrawer } from "./AssistantDrawer";
+import { EvaluationPanel } from "./EvaluationPanel";
 
 const DEFAULT_USER = "rahul-006";
 const HERO_EVENT = "rahul-006-e6";
@@ -89,7 +90,7 @@ export function SocWorkspace() {
     setBusy(true);
     try {
       const r = await api.reset();
-      setDemo({ cursor: 0, total: r.document_counts?.events ?? 0, done: false });
+      setDemo({ cursor: 0, total: r.document_counts?.events ?? 0, done: false, paused: false });
       setRevealed([]);
       setTransitioned(false);
       setSelectedUserId(DEFAULT_USER);
@@ -105,17 +106,24 @@ export function SocWorkspace() {
     }
   };
 
-  const handleNext = async () => {
+  const handleNext = async (force = false) => {
     setBusy(true);
     try {
-      const r = await api.nextEvent();
+      const r = await api.nextEvent(force);
+      if (r.paused) {
+        setDemo((d) => ({ ...(d || {}), paused: true }));
+        toast.info("Paused at the London anomaly", {
+          description: "Review the compound anomaly, then press Resume to continue the stream.",
+        });
+        return;
+      }
       if (r.done) {
-        setDemo((d) => ({ ...(d || {}), done: true, cursor: r.cursor, total: r.total }));
+        setDemo((d) => ({ ...(d || {}), done: true, paused: false, cursor: r.cursor, total: r.total }));
         toast.info("Event stream complete");
         return;
       }
       const ev = r.revealed_event;
-      setDemo({ cursor: r.cursor, total: r.total, done: false });
+      setDemo({ cursor: r.cursor, total: r.total, done: false, paused: false });
       setRevealed((prev) => [...prev, ev]);
       setSelectedUserId(ev.user_id);
       setSelectedEventId(ev.event_id);
@@ -244,6 +252,13 @@ export function SocWorkspace() {
       />
 
       <main className="mx-auto max-w-[1800px] space-y-4 px-4 py-5 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-slate-500">
+            SOC Overview · {users.length} monitored users
+          </div>
+          <EvaluationPanel />
+        </div>
+
         <OverviewStats
           revealed={revealed}
           topDrift={topDrift}

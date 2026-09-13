@@ -190,3 +190,56 @@ def score_event(
             "contexts_considered": contexts_considered,
         },
     }
+
+
+def ablation_scores(values: Dict[str, float]) -> Dict[str, Dict[str, Any]]:
+    """Recompute the final score under component-ablation variants (engine-only)."""
+    variants = {
+        "FULL": dict(values),
+        "NO_CONTEXT": {**values, "context_adjustment": 0.0},
+        "NO_TEMPORAL": {**values, "temporal_correlation": 0.0},
+        "NO_NOVELTY": {**values, "novelty": 0.0},
+        "BEHAVIORAL_ONLY": {"behavioral_anomaly": values.get("behavioral_anomaly", 0.0)},
+    }
+    out = {}
+    for name, v in variants.items():
+        score = engine.compute_final_risk_score(v)
+        out[name] = {"score": score, "severity": engine.severity_for_score(score)}
+    return out
+
+
+def build_alerts(user_id: str, scored_events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Deduplicate flagged events into alerts using the engine's Section-21 contract."""
+    alerts: List[Dict[str, Any]] = []
+    existing: Dict[str, str] = {}
+    for scored in scored_events:
+        if scored["severity"] not in FLAGGED_SEVERITIES:
+            continue
+        top = scored["active_signal_families"]
+        ts = scored["evidence"]["target_event"]["timestamp_utc"]
+        key = engine.dedup_key(user_id, top, ts)
+        action = engine.resolve_alert_action(existing.get(key), scored["severity"])
+        existing[key] = scored["severity"]
+        bucket = engine._six_hour_bucket(ts)
+        fingerprint = engine.alert_fingerprint(user_id, scored["severity"], top, bucket)
+        record = {
+            "user_id": user_id,
+            "event_id": scored["event_id"],
+            "severity": scored["severity"],
+            "risk_score": scored["risk_score"],
+            "top_families": sorted(set(top))[:3],
+            "bucket": bucket,
+            "fingerprint": fingerprint,
+            "action": action,
+        }
+        found = next((a for a in alerts if a["_key"] == key), None)
+        if found is None:
+            record["_key"] = key
+            alerts.append(record)
+        else:
+            record["_key"] = key
+            record["action"] = "update"
+            found.update(record)
+    for a in alerts:
+        a.pop("_key", None)
+    return alerts

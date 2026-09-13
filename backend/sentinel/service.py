@@ -19,7 +19,7 @@ from .demo_db import (
     verify_engine_integrity,
 )
 from .fixtures import ENGINE_VERSION, SEED_VERSION, build_baseline_for, fixture_hash
-from .scoring import FLAGGED_SEVERITIES, score_event
+from .scoring import FLAGGED_SEVERITIES, ablation_scores, build_alerts, score_event
 
 _COMPOUND_SORT = [("timestamp_utc", 1), ("user_id", 1), ("event_id", 1)]
 _NO_ID = {"_id": 0}
@@ -239,14 +239,31 @@ def investigate(user_id: str, event_id: Optional[str] = None) -> Dict[str, Any]:
     return scored
 
 
-def next_event() -> Dict[str, Any]:
+PAUSE_EVENT = "rahul-006-e6"
+
+
+def next_event(force: bool = False) -> Dict[str, Any]:
     db = get_db()
     state = db["demo_state"].find_one({})
     if not state:
         return {"error": "not_seeded"}
     cursor = int(state.get("cursor", 0))
+    paused = bool(state.get("paused", False))
     sequence = list(db["events"].find({"quarantined": False}, _NO_ID).sort(_COMPOUND_SORT))
     total = len(sequence)
+
+    # Bug-2 fix: hold the stream at the London anomaly until the judge confirms.
+    if paused and not force:
+        return {
+            "paused": True,
+            "cursor": cursor,
+            "total": total,
+            "revealed_event": None,
+            "message": "Paused at the London compound anomaly. Confirm to continue the stream.",
+        }
+    if paused and force:
+        db["demo_state"].update_one({"_id": state["_id"]}, {"$set": {"paused": False}})
+
     if cursor >= total:
         return {"done": True, "cursor": cursor, "total": total, "revealed_event": None}
 
@@ -258,7 +275,10 @@ def next_event() -> Dict[str, Any]:
     scored["display_name"] = user.get("display_name")
 
     new_cursor = cursor + 1
-    db["demo_state"].update_one({"_id": state["_id"]}, {"$set": {"cursor": new_cursor}})
+    set_fields = {"cursor": new_cursor}
+    if target["event_id"] == PAUSE_EVENT:
+        set_fields["paused"] = True
+    db["demo_state"].update_one({"_id": state["_id"]}, {"$set": set_fields})
 
     audit_id = None
     if scored["severity"] in FLAGGED_SEVERITIES:
@@ -268,7 +288,117 @@ def next_event() -> Dict[str, Any]:
             action="FLAGGED_BY_DEMO",
         )
     scored["audit_id"] = audit_id
-    return {"done": False, "cursor": new_cursor, "total": total, "revealed_event": scored}
+    return {
+        "done": False,
+        "paused_next": set_fields.get("paused", False),
+        "cursor": new_cursor,
+        "total": total,
+        "revealed_event": scored,
+    }
+
+
+def _score_user_events(db, user):
+    """Score every trusted event for a user; returns list of scored dicts (chronological)."""
+    trusted = _trusted_events(db, user["user_id"])
+    contexts = list(db["contexts"].find({"user_id": user["user_id"]}, _NO_ID))
+    out = []
+    for tev in trusted:
+        prior = build_baseline_for(tev, trusted)
+        out.append(score_event(user, tev, prior, contexts))
+    return out
+
+
+def user_evidence(user_id: str) -> Dict[str, Any]:
+    db = get_db()
+    user = db["users"].find_one({"user_id": user_id}, _NO_ID)
+    if not user:
+        return {"error": "user_not_found"}
+    scored_list = _score_user_events(db, user)
+    if not scored_list:
+        return {"error": "no_trusted_events"}
+    top = max(scored_list, key=lambda s: s["risk_score"])
+    summaries = [
+        {
+            "event_id": s["event_id"],
+            "severity": s["severity"],
+            "risk_score": s["risk_score"],
+            "fired_families": s["evidence"]["fired_families"],
+            "timestamp_utc": s["evidence"]["target_event"]["timestamp_utc"],
+        }
+        for s in scored_list
+    ]
+    return {
+        "user_id": user_id,
+        "scenario": user.get("scenario"),
+        "top_event": top,
+        "timeline_evidence": summaries,
+    }
+
+
+def user_alerts(user_id: str) -> Dict[str, Any]:
+    db = get_db()
+    user = db["users"].find_one({"user_id": user_id}, _NO_ID)
+    if not user:
+        return {"error": "user_not_found"}
+    scored_list = _score_user_events(db, user)
+    alerts = build_alerts(user_id, scored_list)
+    return {"user_id": user_id, "alert_count": len(alerts), "alerts": alerts}
+
+
+def evaluation() -> Dict[str, Any]:
+    """Ground-truth precision/recall/F1/FPR plus a component-ablation table.
+
+    Detection = engine severity >= ELEVATED. Ground truth comes from each user's
+    labelled scenario (malicious_event_ids). Read-only; no scores are stored.
+    """
+    db = get_db()
+    users = list(db["users"].find({}, _NO_ID))
+    variants = ["FULL", "NO_CONTEXT", "NO_TEMPORAL", "NO_NOVELTY", "BEHAVIORAL_ONLY"]
+    conf = {v: {"tp": 0, "fp": 0, "tn": 0, "fn": 0} for v in variants}
+    by_scenario: Dict[str, Dict[str, int]] = {}
+    total_events = 0
+
+    for user in users:
+        scenario = user.get("scenario") or {}
+        truth = set(scenario.get("malicious_event_ids") or [])
+        stype = scenario.get("type", "BENIGN")
+        for scored in _score_user_events(db, user):
+            total_events += 1
+            is_pos = scored["event_id"] in truth
+            abl = ablation_scores(scored["components"])
+            for v in variants:
+                det = abl[v]["severity"] in FLAGGED_SEVERITIES
+                cell = ("tp" if det and is_pos else "fp" if det and not is_pos
+                        else "fn" if is_pos and not det else "tn")
+                conf[v][cell] += 1
+            ps = by_scenario.setdefault(
+                stype, {"events": 0, "malicious": 0, "detected_malicious": 0, "false_alarms": 0})
+            ps["events"] += 1
+            full_det = abl["FULL"]["severity"] in FLAGGED_SEVERITIES
+            if is_pos:
+                ps["malicious"] += 1
+                if full_det:
+                    ps["detected_malicious"] += 1
+            elif full_det:
+                ps["false_alarms"] += 1
+
+    def metrics(c):
+        tp, fp, tn, fn = c["tp"], c["fp"], c["tn"], c["fn"]
+        prec = tp / (tp + fp) if (tp + fp) else 0.0
+        rec = tp / (tp + fn) if (tp + fn) else 0.0
+        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
+        fpr = fp / (fp + tn) if (fp + tn) else 0.0
+        return {**c, "precision": round(prec, 4), "recall": round(rec, 4),
+                "f1": round(f1, 4), "false_positive_rate": round(fpr, 4)}
+
+    return {
+        "total_users": len(users),
+        "total_trusted_events": total_events,
+        "detection_threshold": "severity >= ELEVATED",
+        "overall": metrics(conf["FULL"]),
+        "ablation": [{"variant": v, **metrics(conf[v])} for v in variants],
+        "by_scenario": by_scenario,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -392,4 +522,5 @@ __all__ = [
     "health_state", "reset", "list_users", "get_user", "get_timeline",
     "append_audit", "list_audit", "investigate", "investigate_core",
     "next_event", "assistant_chat", "analyst_action",
+    "user_evidence", "user_alerts", "evaluation",
 ]

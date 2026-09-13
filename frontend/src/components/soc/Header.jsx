@@ -106,10 +106,12 @@ export function Header({
             data-testid="next-event-button"
             size="sm"
             disabled={busy || demo?.done}
-            onClick={onNext}
-            className="h-9 bg-cyan-500 font-semibold text-slate-950 hover:bg-cyan-400"
+            onClick={() => onNext(demo?.paused === true)}
+            className={`h-9 font-semibold text-slate-950 ${
+              demo?.paused ? "bg-amber-400 hover:bg-amber-300" : "bg-cyan-500 hover:bg-cyan-400"
+            }`}
           >
-            {demo?.done ? "Stream Complete" : "Next Event"}
+            {demo?.done ? "Stream Complete" : demo?.paused ? "Resume Stream" : "Next Event"}
             {!demo?.done && <ChevronRight className="ml-1 h-4 w-4" />}
           </Button>
 

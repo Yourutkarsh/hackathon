@@ -58,7 +58,9 @@ def main():
     check("demo_state fixture_hash == computed hash", state1["fixture_hash"] == fixture_hash())
     check("engine_checksum persisted in demo_state", state1["engine_checksum"] == ENGINE_CHECKSUM)
     counts = report1["document_counts"]
-    check("users count == 10", db["users"].count_documents({}) == 10, f"got {counts['users']}")
+    check("users count matches fixture (>= 50)",
+          db["users"].count_documents({}) == counts["users"] and counts["users"] >= 50,
+          f"got {counts['users']}")
     check("events count matches fixture",
           db["events"].count_documents({}) == counts["events"], f"={counts['events']}")
     check("contexts count matches fixture",
