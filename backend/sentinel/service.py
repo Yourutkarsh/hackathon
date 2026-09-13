@@ -142,6 +142,51 @@ def list_audit(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     return out
 
 
+# Analyst workflow actions. These APPEND audit records only. They re-derive the
+# score via the engine to prove the number is unchanged, and never mutate
+# scoring inputs, quarantine status, or baseline eligibility.
+ANALYST_ACTIONS = {"NOTE": "ANALYST_NOTE", "ESCALATE": "ANALYST_ESCALATE", "DISMISS": "ANALYST_DISMISS"}
+
+
+def analyst_action(user_id: str, event_id: Optional[str], action: str,
+                   note: Optional[str] = None) -> Dict[str, Any]:
+    action = str(action or "").upper()
+    if action not in ANALYST_ACTIONS:
+        return {"error": "invalid_action"}
+    scored = investigate_core(user_id, event_id)
+    if "error" in scored:
+        return scored
+    db = get_db()
+    audit_id = str(uuid.uuid4())
+    dismissed = action == "DISMISS"
+    safe_note = html.escape(note)[:500] if note else None
+    now = datetime.now(timezone.utc)
+    db["audit_records"].insert_one({
+        "audit_id": audit_id,
+        "user_id": user_id,
+        "event_id": scored["event_id"],
+        "risk_score": scored["risk_score"],
+        "severity": scored["severity"],
+        "action": ANALYST_ACTIONS[action],
+        "note": safe_note,
+        "created_at": now,
+        "dismissed": dismissed,
+        "dismissed_at": now if dismissed else None,
+    })
+    return {
+        "audit_id": audit_id,
+        "action": ANALYST_ACTIONS[action],
+        "user_id": user_id,
+        "event_id": scored["event_id"],
+        "note": safe_note,
+        "dismissed": dismissed,
+        # Proof the workflow action left the risk math untouched:
+        "risk_score_unchanged": scored["risk_score"],
+        "severity_unchanged": scored["severity"],
+        "quarantine_unaffected": True,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # Scoring / investigation                                                      #
 # --------------------------------------------------------------------------- #
@@ -279,6 +324,45 @@ def assistant_chat(user_id: str, question: str, event_id: Optional[str] = None) 
         {"event_id": ev.get("event_id"), "field": "fired_families", "value": fired},
     ]
 
+    labels = {
+        "behavioral_anomaly": "Behavioral Anomaly",
+        "temporal_correlation": "Temporal Correlation",
+        "sensitivity": "Sensitivity Elevation",
+        "novelty": "Novelty",
+        "context_adjustment": "Context Adjustment",
+    }
+    key_facts = [
+        f"Severity {scored['severity']} at risk score {scored['risk_score']} (engine-authoritative).",
+        f"Origin: {safe_city}, {safe_country}; timezone {html.escape(str(ev.get('user_timezone')))}.",
+        f"Event timestamp (UTC): {html.escape(str(ev.get('timestamp_utc')))}.",
+        f"Fired detectors: {fired_txt}.",
+        f"Active signal families: {html.escape(', '.join(scored['active_signal_families']) or 'none')}.",
+    ]
+    uncertainties = []
+    for key, avail in scored["component_availability"].items():
+        if not avail:
+            uncertainties.append(f"{labels[key]} component unavailable (excluded from evidence).")
+    if scored.get("incomplete"):
+        uncertainties.append(
+            "Event is incomplete; missing: "
+            + html.escape(", ".join(scored.get("missing_components") or [])) + ".")
+    if scored["confidence"] < 100:
+        uncertainties.append(f"Confidence is {scored['confidence']}/100 due to deterministic penalties.")
+    if not uncertainties:
+        uncertainties.append("No availability gaps; all five components were observed.")
+    if scored["severity"] in ("ELEVATED", "HIGH", "CRITICAL"):
+        recommended_steps = [
+            "Verify with the user whether the flagged session was legitimate travel or access.",
+            "Cross-check the origin location and device against approved context windows.",
+            "Review the volume and off-hours evidence before escalation.",
+            "Record an audit note; dismissal remains workflow-only and never changes the score.",
+        ]
+    else:
+        recommended_steps = [
+            "No elevated risk detected; continue passive monitoring.",
+            "Re-investigate if a new context or higher-volume event appears.",
+        ]
+
     audit_id = append_audit(
         user_id=scored["user_id"], event_id=scored["event_id"],
         risk_score=scored["risk_score"], severity=scored["severity"],
@@ -290,6 +374,9 @@ def assistant_chat(user_id: str, question: str, event_id: Optional[str] = None) 
         "risk_score": scored["risk_score"],
         "severity": scored["severity"],
         "confidence": scored["confidence"],
+        "key_facts": key_facts,
+        "uncertainties": uncertainties,
+        "recommended_steps": recommended_steps,
         "citations": citations,
         "components": scored["components"],
         "component_availability": scored["component_availability"],
@@ -304,5 +391,5 @@ __all__ = [
     "DEMO_COLLECTIONS",
     "health_state", "reset", "list_users", "get_user", "get_timeline",
     "append_audit", "list_audit", "investigate", "investigate_core",
-    "next_event", "assistant_chat",
+    "next_event", "assistant_chat", "analyst_action",
 ]

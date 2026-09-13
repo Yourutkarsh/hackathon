@@ -85,6 +85,13 @@ class AssistantChatRequest(BaseModel):
     event_id: Optional[str] = None
 
 
+class AnalystActionRequest(BaseModel):
+    user_id: str
+    action: str
+    event_id: Optional[str] = None
+    note: Optional[str] = None
+
+
 @api_router.get("/health")
 async def health():
     return await run_in_threadpool(service.health_state)
@@ -150,6 +157,22 @@ async def assistant_chat(req: AssistantChatRequest):
 @api_router.get("/audit")
 async def audit_list(user_id: Optional[str] = None):
     return {"records": await run_in_threadpool(service.list_audit, user_id)}
+
+
+@api_router.post("/audit/action")
+async def audit_action(req: AnalystActionRequest):
+    result = await run_in_threadpool(
+        service.analyst_action, req.user_id, req.event_id, req.action, req.note)
+    err = result.get("error")
+    if err == "invalid_action":
+        raise HTTPException(status_code=400, detail="action must be NOTE, ESCALATE or DISMISS")
+    if err == "user_not_found":
+        raise HTTPException(status_code=404, detail="User not found")
+    if err == "event_not_found":
+        raise HTTPException(status_code=404, detail="Event not found for user")
+    if err in ("event_quarantined", "no_trusted_events"):
+        raise HTTPException(status_code=422, detail=err)
+    return result
 
 
 # Include the router in the main app

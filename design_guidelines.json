@@ -1,0 +1,155 @@
+{
+  "project_name": "Sentinel Shift V5.1 — Security Operations Center (SOC) Insider-Threat & Anomaly Workspace",
+  "theme": "Dark Command Center (Tactical High-Density Cyber SOC)",
+  "context_type": "DASHBOARDS & ADMIN PANELS",
+  "archetype": "THE PERFORMANCE PRO / TACTICAL MINIMALISM",
+  "typography": {
+    "heading_font": "Outfit, sans-serif",
+    "body_font": "DM Sans, sans-serif",
+    "mono_font": "JetBrains Mono, monospace",
+    "anti_default_rule": "Strictly no Inter for headings. Use Outfit or Cabinet Grotesk for section titles and JetBrains Mono for metrics, security tokens, timestamps, IP addresses, and telemetry.",
+    "hierarchy": {
+      "h1": "text-3xl sm:text-4xl font-extrabold tracking-tight font-heading",
+      "h2": "text-xl sm:text-2xl font-bold tracking-tight font-heading",
+      "h3": "text-lg sm:text-xl font-semibold font-heading",
+      "h4": "text-base font-medium text-slate-200",
+      "body": "text-sm text-slate-300 font-body leading-relaxed",
+      "mono_data": "font-mono text-xs sm:text-sm tracking-wide text-cyan-400",
+      "label_overline": "text-[11px] font-mono uppercase tracking-[0.2em] text-slate-400 font-semibold"
+    }
+  },
+  "colors": {
+    "background": "#090D14",
+    "surface_primary": "#0F172A",
+    "surface_secondary": "#1E293B",
+    "surface_accent": "#1E293B/80",
+    "border_subtle": "rgba(255, 255, 255, 0.08)",
+    "border_active": "rgba(6, 182, 212, 0.4)",
+    "brand_primary": "#06B6D4",
+    "brand_primary_hover": "#0891B2",
+    "text_main": "#F8FAFC",
+    "text_muted": "#94A3B8",
+    "text_dim": "#64748B",
+    "severity_levels": {
+      "WATCH": {
+        "color": "#10B981",
+        "bg": "rgba(16, 185, 129, 0.12)",
+        "border": "rgba(16, 185, 129, 0.3)",
+        "badge": "bg-emerald-950/60 text-emerald-400 border-emerald-500/30"
+      },
+      "ELEVATED": {
+        "color": "#F59E0B",
+        "bg": "rgba(245, 158, 11, 0.15)",
+        "border": "rgba(245, 158, 11, 0.4)",
+        "badge": "bg-amber-950/60 text-amber-400 border-amber-500/30"
+      },
+      "HIGH": {
+        "color": "#F97316",
+        "bg": "rgba(249, 115, 22, 0.15)",
+        "border": "rgba(249, 115, 22, 0.4)",
+        "badge": "bg-orange-950/60 text-orange-400 border-orange-500/30"
+      },
+      "CRITICAL": {
+        "color": "#EF4444",
+        "bg": "rgba(239, 68, 68, 0.2)",
+        "border": "rgba(239, 68, 68, 0.5)",
+        "badge": "bg-rose-950/80 text-rose-400 border-rose-500/40 animate-pulse"
+      }
+    },
+    "forbidden_colors": [
+      "#7351B7",
+      "#1B93A4"
+    ]
+  },
+  "layout_strategy": {
+    "grid_mode": "High Density Dashboard Grid (MODE B)",
+    "spacing": "Tight to moderate spacing (p-4 to p-6) with high data density. Every card must have internal padding (p-4 or p-5) to prevent text touch with borders.",
+    "container_style": "1px solid rgba(255,255,255,0.08) borders with subtle dark backdrop blur, dark slate background (#0F172A), sharp 8px radii (rounded-lg). No glassmorphism refraction over dense data tables.",
+    "header_nav": "Fixed top bar z-50 with backdrop-blur-md bg-[#090D14]/90 border-b border-slate-800. Height 64px, with clear live-demo control buttons (Reset Demo, Next Event stepper) and current user risk indicator."
+  },
+  "key_workspace_components": {
+    "live_demo_bar": {
+      "location": "Top Sticky Header",
+      "elements": [
+        "Reset Demo button (data-testid='reset-demo-button')",
+        "Next Event stepper button (data-testid='next-event-button')",
+        "Event Counter & Step Indicator (e.g., Event 6 / 10)",
+        "Current Risk Transition alert pill"
+      ]
+    },
+    "timeline_stepper": {
+      "location": "Upper Central Workspace",
+      "description": "Chronological horizontal visual event stepper showing Event 1 through N, highlighting Event 6 anomaly transition with custom marker and timestamp comparison."
+    },
+    "soc_overview_cards": {
+      "location": "Top Dashboard Section",
+      "elements": [
+        "Active Alerts Counter Card",
+        "Severity Counters Grid (Watch, Elevated, High, Critical)",
+        "Engine Confidence Meter Card",
+        "Top Drift Users Table / List"
+      ]
+    },
+    "user_selector": {
+      "location": "Workspace Sidebar / Header Dropdown",
+      "description": "User profile selector dropdown (Rahul preselected) showing quick risk score badge, primary location, and role."
+    },
+    "behavioral_dna_card": {
+      "location": "Main Investigation Column - Left",
+      "description": "Side-by-side Baseline Contrast matrix highlighting normal Bengaluru business hours (09:00 - 18:00 IST) vs Event 6 anomalous activity (London, UK at 02:15 AM local) with delta highlight."
+    },
+    "score_decomposition": {
+      "location": "Main Investigation Column - Right",
+      "description": "5 Component Score decomposition bars with clear backend availability flags, scores, confidence ratings, active signal family chips: Behavioral Anomaly, Temporal Correlation, Sensitivity Elevation, Novelty, Context Adjustment."
+    },
+    "evidence_provenance_panel": {
+      "location": "Lower Workspace",
+      "elements": [
+        "Event ID & Raw Payload viewer with escaped untrusted payload strings",
+        "Fired Detectors list (Rule A/B/C)",
+        "Cluster Grouping badges",
+        "Context Discount Inspector (Applicable vs Expired contexts)"
+      ]
+    },
+    "analyst_action_bar": {
+      "location": "Action Dock",
+      "buttons": [
+        "Add Note (modal/drawer)",
+        "Escalate Alert (triggers toast)",
+        "Dismiss Alert (non-destructive, appends to audit trail)"
+      ]
+    },
+    "evidence_assistant_drawer": {
+      "location": "Slide-over Drawer / Collapsible Side Panel",
+      "features": [
+        "Grounded offline assistant chat",
+        "Structured sections: Answer, Key Facts, Uncertainties, Recommended Steps, Event Citations",
+        "Quick prompt triggers"
+      ]
+    },
+    "audit_trail_timeline": {
+      "location": "Bottom Workspace Panel",
+      "description": "Appended audit log showing all analyst interactions, note entries, escalation status changes, and backend engine event evaluations."
+    }
+  },
+  "motion_and_interactions": {
+    "engine": "Framer Motion",
+    "risk_score_transition": "When stepping to Event 6, animate risk score counter smoothly with scale pulse and color glow transition from green/emerald to amber/orange (ELEVATED).",
+    "hover_states": "Hover states must increase border brightness (border-cyan-500/40) and lift cards slightly (-translate-y-[1px]). Always explicitly define text color on hover (hover:text-white).",
+    "transitions": "Explicit transition rules for transform and opacity only (e.g. transition-transform duration-200 ease-in-out). BANNED: transition: all."
+  },
+  "accessibility_and_testing": {
+    "contrast_ratio": "APCA high-contrast compliance for dark mode. Primary text #F8FAFC over #0F172A (ratio > 12:1).",
+    "data_testids": "MANDATORY on all key interactive elements and metric cards: reset-demo-button, next-event-button, user-select-dropdown, risk-score-display, severity-badge, event-stepper-item, score-component-row, analyst-note-input, escalate-button, dismiss-button, assistant-drawer-toggle, audit-trail-list.",
+    "file_extension_rule": "Frontend files are in React .js / .jsx format. Import components appropriately from ./components/ui/."
+  },
+  "instructions_to_main_agent": [
+    "Ensure backend API calls map cleanly to the FastAPI endpoints or handle offline fallback gracefully if backend is initialising.",
+    "Verify Event 6 compound anomaly triggers the ELEVATED risk state transition with full score component breakdown.",
+    "Display all 5 component score bars with explicit availability tags provided by the backend.",
+    "Format untrusted payload strings safely in Evidence Provenance viewer.",
+    "Utilize lucide-react icons for security telemetry icons (Shield, AlertTriangle, Terminal, Activity, Compass, Lock, Zap, FileText, User, MapPin, Clock).",
+    "Include Sonner toast notifications for analyst actions (Add Note, Escalate, Dismiss).",
+    "Add responsive side drawers and responsive tabs so the SOC workspace looks pristine at 1280px, 1536px, and mobile viewports."
+  ]
+}
