@@ -1,0 +1,9 @@
+{
+  "engine_file": "risk_engine_v5_1.py",
+  "engine_version": "5.1",
+  "sha256": "08446a7cf59a88eeff2d4bf492c6e30a2bb46316e884f098a5a6a3bf7f091c71",
+  "contract": "immutable-vendored-read-only",
+  "test_file": "test_v51_fixes.py",
+  "test_file_sha256": "d4ac6acedff3a70624d9729e78fbe2dbf7a676569392b727e9ec44f1c5706350",
+  "notes": "Vendored unchanged. No formula/threshold/ordering/detector changes. Integrity is enforced by sentinel.verify_engine_integrity()."
+}

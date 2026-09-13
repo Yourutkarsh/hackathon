@@ -1,0 +1,5 @@
+# Vendored, immutable files must not be edited (checksum/import contract).
+# test_v51_fixes.py legitimately uses `from risk_engine_v5_1 import *`.
+[lint.per-file-ignores]
+"test_v51_fixes.py" = ["F403", "F405"]
+"risk_engine_v5_1.py" = ["F403", "F405"]
