@@ -42,9 +42,19 @@ Phase 1.
       Warm reset measured ~2.9 ms.
 
 ## Backlog
-- **P0 (Phase 2)**: FastAPI endpoints incl. `POST /api/demo/reset`, event/query/scoring routes.
 - **P1**: React frontend (dashboard, anomaly review, audit workflow).
-- **P2**: Runtime scoring pipeline persisting audit_records via the engine.
+- **P2**: Persist per-event scored snapshots for fast timeline replay (optimization).
+
+## Phase 2 — FastAPI Backend (Implemented 2026-06)
+- Endpoints (all under `/api`, engine math delegated to `risk_engine_v5_1` via `sentinel/scoring.py`):
+  `GET /health`, `POST /demo/reset`, `POST /demo/next-event` (scripted 1-step stepper with cursor in `demo_state`),
+  `GET /users`, `GET /users/{id}`, `GET /users/{id}/timeline`,
+  `POST /investigate` (score + severity + 5 components w/ availability + confidence + signals + clusters + evidence provenance),
+  `POST /assistant/chat` (offline deterministic template, `used_llm:false`, HTML-escaped untrusted text + citations),
+  `GET /audit`.
+- `sentinel/service.py` orchestrates pymongo (wrapped in `run_in_threadpool`); `sentinel/scoring.py` is a pure engine wrapper.
+- Audit trail: `ANALYST_INVESTIGATION`, `ASSISTANT_QUERY`, `FLAGGED_BY_DEMO` appended to `audit_records` (append-only; never alters scoring/quarantine/baseline).
+- Verified live: Rahul E6 → 67.98 ELEVATED (behavioral 100, novelty 86, sensitivity 50, context 0/unavailable, expired May travel context correctly not applied); 27 trusted events streamed, only E6 flagged; injection payload escaped; errors 404/422 correct. Engine remains read-only & checksum unchanged; Phase 1 gate still passes.
 
 ## Next Tasks
-- Phase 2: expose `reset_demo_db()` via `POST /api/demo/reset` (async motor wrapper) + read APIs.
+- Phase 3: React frontend (do NOT start until requested).

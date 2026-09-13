@@ -116,6 +116,8 @@ def reset_demo_db(db: Optional[Database] = None) -> Dict[str, Any]:
         "reset_time": reset_time,
         "reset_duration_ms": round(duration_ms, 3),
         "document_counts": counts,
+        # Scripted-demo cursor: number of trusted events already revealed.
+        "cursor": 0,
     }
     database["demo_state"].insert_one(copy.deepcopy(demo_state))
 
