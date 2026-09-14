@@ -56,5 +56,63 @@ Phase 1.
 - Audit trail: `ANALYST_INVESTIGATION`, `ASSISTANT_QUERY`, `FLAGGED_BY_DEMO` appended to `audit_records` (append-only; never alters scoring/quarantine/baseline).
 - Verified live: Rahul E6 → 67.98 ELEVATED (behavioral 100, novelty 86, sensitivity 50, context 0/unavailable, expired May travel context correctly not applied); 27 trusted events streamed, only E6 flagged; injection payload escaped; errors 404/422 correct. Engine remains read-only & checksum unchanged; Phase 1 gate still passes.
 
-## Next Tasks
-- Phase 3: React frontend (do NOT start until requested).
+## Phase 3 — React Frontend (Implemented 2026-06)
+- SOC Investigation Workspace (CRA + craco): header/demo controls, overview stats,
+  chronological event stepper, behavioral-DNA baseline contrast, 5-component
+  decomposition with availability flags, evidence/provenance, context inspector,
+  analyst action dock, append-only audit trail, offline evidence-assistant drawer,
+  and an evaluation/ablation dialog.
+
+## Phase 4 — V5.1 Compliance Hardening (Implemented 2026-09)
+Aligned the app with the supplied compliance addendum without touching the
+immutable engine (`risk_engine_v5_1.py` byte-for-byte unchanged; checksum verified).
+
+**Tier 1 — taxonomy, detection, ablation, docs**
+- [x] Added `PROJECT_CHANGE` (settles under an approved context) and `MIXED_CASE`
+      (discounted explanation + unresisted independent anomaly) scenarios.
+- [x] Renamed scenario `BENIGN` → `NORMAL` (backend, frontend, README, PRD) with a
+      legacy `BENIGN` alias in the evaluation response.
+- [x] Adopted **strict spec detection at HIGH/CRITICAL (70+)** as the evaluation
+      default; ELEVATED+ (50+) retained as a legacy alias. Rahul E6 verified
+      explicitly: **67.98 ELEVATED** — legacy-detected, below the strict bar.
+- [x] Replaced ablation variants with `RULES_ONLY`, `RULES_PLUS_STATS`,
+      `RULES_STATS_IFOREST`, `FULL`, `TEMPORAL_OFF`, `CONTEXT_OFF` (+ legacy aliases).
+
+**Tier 2 — behavior**
+- [x] Real per-user Isolation Forest adapter (`sentinel/iforest.py`, model
+      `iforest-v1`, seed 42) with chronological trusted-history training, a
+      documented 10-event minimum, population fallback (other users only),
+      availability flags, and q95/q99 handling. Never fabricates a score.
+- [x] Exact `COLD`/`WARMING`/`READY` baseline lifecycle boundaries (19/20 events,
+      49/50 events, 6/7 distinct days) + demo-wide `baseline_version` incremented
+      atomically on reset.
+- [x] Informational calibration sweep (chronological 60/20/20, FPR-constrained
+      deterministic selection, locked-slice metrics) that cannot alter global detection.
+
+**Tier 3 — contract & verification**
+- [x] Assistant output aligned to `recommended_investigation_steps`, `evidence_ids`,
+      `signal_families` (legacy `recommended_steps`/`citations` retained).
+- [x] Frontend displays baseline lifecycle, iforest availability/fallback,
+      revised ablation names, calibration results, and updated assistant fields.
+- [x] `sentinel/test_v51_boundaries.py` covers boundaries, fallbacks, scenarios,
+      duplicate/out-of-order timestamps, empty calibration slices, and reset/version
+      monotonicity. `test_v51_fixes.py` + `test_phase1_persistence.py` still pass.
+- [x] `test_api_routes.py` drives the real ASGI app (`server.app`) through
+      `fastapi.testclient.TestClient`, asserting every `/api` route: status codes,
+      schemas, quarantine/validation errors (404/409/422/400), the append-only audit
+      workflow, and evaluation (strict + legacy detection, ablation, calibration).
+- [x] `test_sentinel_invariants.py` codifies the sentinel-guard skill as a durable
+      gate: engine immutability (checksum + read-only), zero temporal leakage across
+      every user baseline, read-only LLM separation, and deterministic reproducibility
+      (seed=42, stable fixture hash, sub-50 ms warm reset).
+
+**Deliberate decisions / limitations**
+- Strict 70+ detection is the adopted default; Rahul E6 (67.98 ELEVATED) is a
+  documented boundary surfaced via the legacy alert band.
+- No live external LLM (offline deterministic assistant). No SQLite migration,
+  no repository restructure.
+
+## Next Tasks / Future Improvements
+- Replace deterministic assistant responses with a read-only, auditable LLM summarizer.
+- Expand spec §29 test matrix and production-grade calibration.
+- Model persistence/version migration and richer role/population baselines.

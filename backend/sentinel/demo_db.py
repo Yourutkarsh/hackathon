@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
-from pymongo import ASCENDING, MongoClient
+from pymongo import ASCENDING, MongoClient, ReturnDocument
 from pymongo.database import Database
 
 from .fixtures import (
@@ -80,11 +80,39 @@ def ensure_indexes(db: Optional[Database] = None) -> Dict[str, list]:
     return {c: [ix["name"] for ix in database[c].list_indexes()] for c in DEMO_COLLECTIONS}
 
 
+def next_baseline_version(database: Optional[Database] = None) -> int:
+    """Atomically increment and return the demo-wide ``baseline_version``.
+
+    The counter lives in its own ``demo_counters`` document (never deleted by a
+    reset) and is bumped with an atomic ``$inc`` upsert, so concurrent resets
+    cannot lose or duplicate a version. ``demo_state`` mirrors the value.
+    """
+    database = get_db(database)
+    doc = database["demo_counters"].find_one_and_update(
+        {"_id": "baseline_version"},
+        {"$inc": {"value": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    return int((doc or {}).get("value", 1))
+
+
+def current_baseline_version(database: Optional[Database] = None) -> int:
+    """Read the persisted demo-wide baseline version (0 before the first reset)."""
+    database = get_db(database)
+    state = database["demo_state"].find_one({}, {"baseline_version": 1})
+    if state and state.get("baseline_version") is not None:
+        return int(state["baseline_version"])
+    counter = database["demo_counters"].find_one({"_id": "baseline_version"})
+    return int((counter or {}).get("value", 0))
+
+
 def reset_demo_db(db: Optional[Database] = None) -> Dict[str, Any]:
     """Clear + reseed the demo collections from the frozen fixture.
 
     Returns a report with timing, document counts, fixture hash, engine version,
-    and a performance-warning flag. Synthetic data is NEVER regenerated here.
+    the incremented demo-wide ``baseline_version``, and a performance-warning
+    flag. Synthetic data is NEVER regenerated here.
     """
     database = get_db(db)
     ensure_indexes(database)
@@ -94,8 +122,11 @@ def reset_demo_db(db: Optional[Database] = None) -> Dict[str, Any]:
 
     reset_time = datetime.now(timezone.utc)
 
-    # Timed warm path: clear demo collections + bulk insert.
+    # Timed warm path: bump the demo-wide baseline version, clear the demo
+    # collections, and bulk insert. The atomic counter upsert is INSIDE the timed
+    # region so the reported duration reflects the entire reset (target < 50 ms).
     start = time.perf_counter()
+    baseline_version = next_baseline_version(database)
     for coll in DEMO_COLLECTIONS:
         database[coll].delete_many({})
     if fixture["users"]:
@@ -119,6 +150,8 @@ def reset_demo_db(db: Optional[Database] = None) -> Dict[str, Any]:
         # Scripted-demo cursor: number of trusted events already revealed.
         "cursor": 0,
         "paused": False,
+        # Demo-wide baseline lifecycle version (increments on every reset).
+        "baseline_version": baseline_version,
     }
     database["demo_state"].insert_one(copy.deepcopy(demo_state))
 
@@ -133,6 +166,7 @@ def reset_demo_db(db: Optional[Database] = None) -> Dict[str, Any]:
         "engine_checksum": demo_state["engine_checksum"],
         "engine_integrity_ok": demo_state["engine_checksum"] == ENGINE_CHECKSUM,
         "reset_time": reset_time.isoformat(),
+        "baseline_version": baseline_version,
     }
     if not performance_ok:
         report["performance_warning"] = (

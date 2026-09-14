@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Bot, Send, Sparkles, BookText, HelpCircle, ListChecks, Quote } from "lucide-react";
+import { Bot, Send, Sparkles, BookText, HelpCircle, ListChecks, Quote, Tag } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -119,7 +119,49 @@ export function AssistantDrawer({ open, onOpenChange, userId, eventId, onSent })
                   </p>
                   <Section icon={BookText} title="Key Facts" items={m.data.key_facts} color="text-cyan-400" />
                   <Section icon={HelpCircle} title="Uncertainties" items={m.data.uncertainties} color="text-amber-400" />
-                  <Section icon={ListChecks} title="Recommended Steps" items={m.data.recommended_steps} color="text-emerald-400" />
+                  <Section
+                    icon={ListChecks}
+                    title="Recommended Investigation Steps"
+                    items={m.data.recommended_investigation_steps || m.data.recommended_steps}
+                    color="text-emerald-400"
+                  />
+                  {(m.data.signal_families?.length > 0 ||
+                    m.data.evidence_ids?.length > 0 ||
+                    m.data.baseline_state) && (
+                    <div className="mt-2.5">
+                      <div className="mb-1 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                        <Tag className="h-3 w-3" /> Grounded Evidence
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1">
+                        {m.data.baseline_state && (
+                          <span className="rounded border border-cyan-500/30 bg-cyan-950/30 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-cyan-300">
+                            baseline {m.data.baseline_state}
+                          </span>
+                        )}
+                        {m.data.iforest && (
+                          <span className="rounded border border-slate-700 bg-slate-800/60 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-slate-400">
+                            iforest {m.data.iforest.available ? m.data.iforest.source : "unavailable"}
+                          </span>
+                        )}
+                        {(m.data.signal_families || []).map((f) => (
+                          <span
+                            key={f}
+                            className="rounded border border-amber-500/30 bg-amber-950/40 px-1.5 py-0.5 font-mono text-[9px] text-amber-300"
+                          >
+                            {f}
+                          </span>
+                        ))}
+                        {(m.data.evidence_ids || []).map((id) => (
+                          <span
+                            key={id}
+                            className="rounded border border-slate-700 bg-slate-800/60 px-1.5 py-0.5 font-mono text-[9px] text-slate-400"
+                          >
+                            {id}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {m.data.citations?.length > 0 && (
                     <div className="mt-2.5">
                       <div className="mb-1 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">

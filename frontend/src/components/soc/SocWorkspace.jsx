@@ -7,6 +7,8 @@ import { Header } from "./Header";
 import { OverviewStats } from "./OverviewStats";
 import { EventStepper } from "./EventStepper";
 import { BaselineContrast } from "./BaselineContrast";
+import { BaselineLifecycle } from "./BaselineLifecycle";
+import { ModelMetadata } from "./ModelMetadata";
 import { ScoreDecomposition } from "./ScoreDecomposition";
 import { EvidenceProvenance } from "./EvidenceProvenance";
 import { ContextInspector } from "./ContextInspector";
@@ -308,6 +310,14 @@ export function SocWorkspace() {
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <BaselineContrast investigation={investigation} user={userDetail} />
           <ScoreDecomposition investigation={investigation} />
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <BaselineLifecycle
+            lifecycle={investigation?.baseline_lifecycle || userDetail?.baseline_lifecycle}
+            version={health?.baseline_version}
+          />
+          <ModelMetadata investigation={investigation} />
         </div>
 
         <EvidenceProvenance investigation={investigation} />

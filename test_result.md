@@ -101,3 +101,57 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+## user_problem_statement: "Sentinel Shift V5.1 Compliance Hardening — implement Tier 1/2/3 fixes without changing the immutable engine."
+## backend:
+##   - task: "Tier 1: scenario taxonomy (PROJECT_CHANGE, MIXED_CASE, BENIGN->NORMAL), strict spec detection (70+), revised ablations"
+##     implemented: true
+##     working: true
+##     file: "backend/sentinel/fixtures.py, scoring.py, lifecycle.py"
+##     priority: "high"
+##     status_history:
+##         - working: true
+##         - agent: "main"
+##         - comment: "test_v51_boundaries.py -> ALL_V51_BOUNDARY_TESTS_PASSED; Rahul E6 verified 67.98 ELEVATED (legacy-detected, below strict 70 bar); PROJECT_CHANGE e5 27.94 NORMAL (settles); MIXED_CASE e4 65.37 ELEVATED."
+##   - task: "Tier 2: Isolation Forest adapter (iforest-v1) + baseline lifecycle/version + calibration sweep"
+##     implemented: true
+##     working: true
+##     file: "backend/sentinel/iforest.py, lifecycle.py, calibration.py, demo_db.py"
+##     priority: "high"
+##     status_history:
+##         - working: true
+##         - agent: "main"
+##         - comment: "Fallback/unavailable/q99==q95/determinism covered; baseline_version increments 1..N across resets; calibration reporting-only with empty-slice + deterministic tie-break tests."
+##   - task: "Tier 3: assistant schema aliases + backward-compatible aliases"
+##     implemented: true
+##     working: true
+##     file: "backend/sentinel/service.py"
+##     priority: "medium"
+##     status_history:
+##         - working: true
+##         - agent: "main"
+##         - comment: "recommended_investigation_steps/evidence_ids/signal_families added; legacy recommended_steps/citations retained; BENIGN scenario alias + legacy ablation names + legacy detection metrics exposed."
+## frontend:
+##   - task: "Baseline lifecycle, iforest metadata, revised ablation/calibration, updated assistant fields"
+##     implemented: true
+##     working: true
+##     file: "frontend/src/components/soc/BaselineLifecycle.jsx, ModelMetadata.jsx, EvaluationPanel.jsx, AssistantDrawer.jsx, SocWorkspace.jsx, lib/severity.js"
+##     priority: "high"
+##     status_history:
+##         - working: true
+##         - agent: "main"
+##         - comment: "All changed JSX validated with esbuild (exit 0). Manual flow reset -> Rahul E6 -> investigate verified against the API; populations show COLD/WARMING/READY."
+## metadata:
+##   created_by: "main_agent"
+##   version: "1.1"
+##   run_ui: false
+## test_plan:
+##   current_focus:
+##     - "Re-run python test_v51_fixes.py, python test_phase1_persistence.py, python test_v51_boundaries.py after any change."
+## agent_communication:
+##   - agent: "main"
+##     message: "Engine preserved byte-for-byte (sha256 matches ENGINE_MANIFEST.json, chmod 444). test_v51_fixes.py unchanged (sha256 verified). No live external LLM added."
+##   - agent: "main"
+##     message: "Added test_api_routes.py (FastAPI TestClient): 47 checks across all /api routes -> ALL_API_ROUTE_TESTS_PASSED. requirements.txt adds scikit-learn + httpx."
+##   - agent: "main"
+##     message: "sentinel-guard: added test_sentinel_invariants.py (engine immutability, zero temporal leakage sweep over every baseline, read-only LLM separation, deterministic reproducibility) -> ALL_SENTINEL_INVARIANTS_SATISFIED. Also moved the baseline_version bump inside the timed reset region so the <50 ms target is measured honestly. All 5 suites green."
