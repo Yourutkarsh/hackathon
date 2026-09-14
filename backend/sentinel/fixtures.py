@@ -3,9 +3,16 @@
 The fixture is built exactly once at import time and frozen. It contains a
 synthetic population (>= 50 users) with 30-60 day histories, multiple labelled
 scenario types (SUDDEN_COMPROMISE, GRADUAL_INSIDER, LEGITIMATE_TRAVEL,
-ROLE_CHANGE, BENIGN_LATE_WORKER, BENIGN) plus ground-truth labels used by the
-evaluation endpoint. ``rahul-006`` Event 6 remains the canonical London / 02:15
-AM compound anomaly contrasted against a Bengaluru baseline.
+ROLE_CHANGE, PROJECT_CHANGE, MIXED_CASE, BENIGN_LATE_WORKER, NORMAL) plus
+ground-truth labels used by the evaluation endpoint. ``rahul-006`` Event 6
+remains the canonical London / 02:15 AM compound anomaly contrasted against a
+Bengaluru baseline.
+
+The V5.1 compliance addendum renamed the ``BENIGN`` scenario to ``NORMAL`` and
+added two scenarios that exercise context semantics: ``PROJECT_CHANGE`` (an
+approved new resource family that **settles** under a time-valid context) and
+``MIXED_CASE`` (one legitimate, context-discounted signal alongside an
+independent anomaly that the context must NOT suppress).
 
 No randomness is used: values are literal or a fixed function of a stable hash,
 so ``fixture_hash()`` is byte-stable across runs.
@@ -308,6 +315,88 @@ def _role_change():
     return user, ev
 
 
+def _project_change():
+    """PROJECT_CHANGE: an approved new resource family that SETTLES.
+
+    The novel family fires Rule B (novel sensitive resource) plus a
+    ``RESOURCE_NOVELTY`` signal, but a time-valid approved-project context
+    discounts exactly that family, so the event settles below ELEVATED.
+    """
+    uid = "project-016"
+    loc = {"city": "Singapore", "country": "Singapore"}
+    tz = "Asia/Singapore"
+    ev = [
+        {"event_id": f"{uid}-e1", "user_id": uid, "timestamp_original": "2024-05-22T09:15:00",
+         "user_timezone": tz, "location": loc, "event_type": "LOGIN",
+         "resource_family": "ENG", "sensitivity": "LOW", "data_mb": 12, "file_count": 3, "signals": {}},
+        {"event_id": f"{uid}-e2", "user_id": uid, "timestamp_original": "2024-05-25T11:30:00",
+         "user_timezone": tz, "location": loc, "event_type": "FILE_ACCESS",
+         "resource_family": "DOCS", "sensitivity": "LOW", "data_mb": 11, "file_count": 4, "signals": {}},
+        {"event_id": f"{uid}-e3", "user_id": uid, "timestamp_original": "2024-05-29T10:05:00",
+         "user_timezone": tz, "location": loc, "event_type": "REPORT",
+         "resource_family": "ENG", "sensitivity": "LOW", "data_mb": 14, "file_count": 4, "signals": {}},
+        {"event_id": f"{uid}-e4", "user_id": uid, "timestamp_original": "2024-06-03T14:40:00",
+         "user_timezone": tz, "location": loc, "event_type": "ACCESS",
+         "resource_family": "ENG", "sensitivity": "MEDIUM", "data_mb": 13, "file_count": 5, "signals": {}},
+        {"event_id": f"{uid}-e5", "user_id": uid, "timestamp_original": "2024-06-06T10:20:00",
+         "user_timezone": tz, "location": loc, "event_type": "ACCESS",
+         "resource_family": "PROJECT_ATLAS", "sensitivity": "MEDIUM", "data_mb": 15, "file_count": 4,
+         "signals": {"RESOURCE_NOVELTY": 62.0}},
+        {"event_id": f"{uid}-e6", "user_id": uid, "timestamp_original": "2024-06-09T09:50:00",
+         "user_timezone": tz, "location": loc, "event_type": "REPORT",
+         "resource_family": "PROJECT_ATLAS", "sensitivity": "LOW", "data_mb": 12, "file_count": 4, "signals": {}},
+    ]
+    user = {
+        "user_id": uid, "display_name": "Priya Nair", "location": loc, "user_timezone": tz,
+        "baseline": _baseline(540, 1080, ["ENG", "DOCS"],
+                              [12, 14, 11, 13, 15, 12], [3, 4, 4, 5, 4, 4], [2, 3, 2, 3, 2, 2]),
+        "scenario": {"type": "PROJECT_CHANGE", "malicious_event_ids": [], "expected_alert": False},
+    }
+    return user, ev
+
+
+def _mixed_case():
+    """MIXED_CASE: explained evidence + an independent anomaly that survives.
+
+    A novel location/device is covered by an approved travel context, but the
+    same event also carries an unexplained off-hours volume spike and a
+    sensitivity elevation over prior comparable history. The context discounts
+    only the targeted family, so the event must remain ELEVATED or higher.
+    """
+    uid = "mixed-017"
+    home = {"city": "Dubai", "country": "United Arab Emirates"}
+    tz = "Asia/Dubai"
+    paris = {"city": "Paris", "country": "France"}
+    ev = [
+        {"event_id": f"{uid}-e1", "user_id": uid, "timestamp_original": "2024-05-20T09:10:00",
+         "user_timezone": tz, "location": home, "event_type": "LOGIN",
+         "resource_family": "ENG", "sensitivity": "LOW", "data_mb": 12, "file_count": 3, "signals": {}},
+        {"event_id": f"{uid}-e2", "user_id": uid, "timestamp_original": "2024-05-24T10:25:00",
+         "user_timezone": tz, "location": home, "event_type": "FILE_ACCESS",
+         "resource_family": "PAYROLL", "sensitivity": "LOW", "data_mb": 11, "file_count": 3, "signals": {}},
+        {"event_id": f"{uid}-e3", "user_id": uid, "timestamp_original": "2024-05-28T14:50:00",
+         "user_timezone": tz, "location": home, "event_type": "REPORT",
+         "resource_family": "ENG", "sensitivity": "LOW", "data_mb": 13, "file_count": 4, "signals": {}},
+        {"event_id": f"{uid}-e4", "user_id": uid, "timestamp_original": "2024-06-02T03:20:00",
+         "user_timezone": "Europe/Paris", "location": paris, "event_type": "BULK_EXPORT",
+         "resource_family": "PAYROLL", "sensitivity": "CRITICAL", "data_mb": 210, "file_count": 52,
+         "signals": {"LOCATION_NOVELTY": 80.0, "DEVICE_NOVELTY": 85.0,
+                     "APPLICATION_NOVELTY": 88.0, "VOLUME_SPIKE": 90.0,
+                     "TIME_DEVIATION": 92.0}},
+        {"event_id": f"{uid}-e5", "user_id": uid, "timestamp_original": "2024-06-06T10:15:00",
+         "user_timezone": tz, "location": home, "event_type": "REPORT",
+         "resource_family": "ENG", "sensitivity": "LOW", "data_mb": 12, "file_count": 4, "signals": {}},
+    ]
+    user = {
+        "user_id": uid, "display_name": "Ibrahim Diallo", "location": home, "user_timezone": tz,
+        "baseline": _baseline(540, 1080, ["ENG"],
+                              [12, 11, 13, 12, 14, 12], [3, 3, 4, 4, 3, 4], [2, 3, 2, 3, 2, 2]),
+        "scenario": {"type": "MIXED_CASE", "malicious_event_ids": ["mixed-017-e4"],
+                     "expected_alert": True},
+    }
+    return user, ev
+
+
 # --------------------------------------------------------------------------- #
 # Benign population generator (deterministic)                                  #
 # --------------------------------------------------------------------------- #
@@ -349,7 +438,47 @@ def _benign_user(uid: str, name: str, city_idx: int):
         "location": {"city": city, "country": country}, "user_timezone": tz,
         "baseline": _baseline(480, 1080, RESOURCE_FAMILIES[:3],
                               data_baseline, file_baseline, [2, 3, 2, 4, 3, 2]),
-        "scenario": {"type": "BENIGN", "malicious_event_ids": [], "expected_alert": False},
+        "scenario": {"type": "NORMAL", "malicious_event_ids": [], "expected_alert": False},
+    }
+    return user, events
+
+
+def _veteran_user(uid: str, name: str, city_idx: int, n_events: int, span_days: int):
+    """A long-history NORMAL user so baseline lifecycle reaches WARMING/READY.
+
+    Deterministic in-band (09:00-16:00 local) activity; the spread over
+    ``span_days`` controls the distinct-day count used by the lifecycle boundary.
+    """
+    city, country, tz = CITIES[city_idx % len(CITIES)]
+    uh = _h(uid, "vet")
+    base_vol = 10 + (uh % 18)
+    data_baseline = [max(1, base_vol + d) for d in (-3, 0, 2, -1, 4, 1, -2, 3)]
+    file_baseline = [3, 5, 4, 6, 4, 3, 5, 4]
+    start = datetime(2024, 4, 1)
+    step = span_days / max(1, n_events - 1)
+    events = []
+    for j in range(n_events):
+        eh = _h(uid, j, "evo")
+        day = start + timedelta(days=int(j * step))
+        hour = 9 + (eh % 8)
+        minute = (eh // 7) % 60
+        vol = max(1, base_vol + ((eh % 11) - 5))
+        files = max(1, 3 + ((eh // 13) % 5))
+        events.append({
+            "event_id": f"{uid}-e{j + 1}", "user_id": uid,
+            "timestamp_original": f"{day.date().isoformat()}T{hour:02d}:{minute:02d}:00",
+            "user_timezone": tz, "location": {"city": city, "country": country},
+            "event_type": ["LOGIN", "FILE_ACCESS", "REPORT", "ACCESS"][j % 4],
+            "resource_family": RESOURCE_FAMILIES[(j + uh) % len(RESOURCE_FAMILIES)],
+            "sensitivity": "MEDIUM" if j % 3 == 0 else "LOW",
+            "data_mb": vol, "file_count": files, "signals": {},
+        })
+    user = {
+        "user_id": uid, "display_name": name,
+        "location": {"city": city, "country": country}, "user_timezone": tz,
+        "baseline": _baseline(540, 1080, RESOURCE_FAMILIES[:3],
+                              data_baseline, file_baseline, [2, 3, 2, 4, 3, 2]),
+        "scenario": {"type": "NORMAL", "malicious_event_ids": [], "expected_alert": False},
     }
     return user, events
 
@@ -373,13 +502,13 @@ def _build_population():
         "location": {"city": "Tokyo", "country": "Japan"}, "user_timezone": "Asia/Tokyo",
         "baseline": _baseline(540, 1080, ["ENG", "DATA"],
                               [9, 11, 10, 12], [3, 4, 3, 5], [2, 3, 2]),
-        "scenario": {"type": "BENIGN", "malicious_event_ids": [], "expected_alert": False},
+        "scenario": {"type": "NORMAL", "malicious_event_ids": [], "expected_alert": False},
     })
     raw_events += _YUKI_EVENTS
 
     # Hand-authored scenario users.
     for maker in (_gradual_insider, _legit_travel, _uncovered_travel,
-                  _benign_late_worker, _role_change):
+                  _benign_late_worker, _role_change, _project_change, _mixed_case):
         u, ev = maker()
         raw_users.append(u)
         raw_events += ev
@@ -394,6 +523,15 @@ def _build_population():
     for i in range(15, 61):
         uid = f"user-{i:03d}"
         u, ev = _benign_user(uid, f"Analyst {i:03d}", i)
+        raw_users.append(u)
+        raw_events += ev
+
+    # Long-history NORMAL users so the baseline lifecycle reaches WARMING/READY.
+    for uid, name, ci, n_events, span in (
+        ("veteran-018", "Noor Haddad", 5, 52, 60),
+        ("veteran-019", "Ravi Menon", 7, 22, 9),
+    ):
+        u, ev = _veteran_user(uid, name, ci, n_events, span)
         raw_users.append(u)
         raw_events += ev
 
@@ -420,6 +558,14 @@ _RAW_CONTEXTS: List[Dict[str, Any]] = [
      "affected_signal_families": ["VELOCITY_CHANGE"], "raw_reduction_points": 30.0,
      "confidence": "HIGH", "start_utc": "2024-06-01T00:00:00Z", "end_utc": None,
      "reason": "Planned data pipeline maintenance."},
+    {"context_id": "ctx-project-atlas", "user_id": "project-016",
+     "affected_signal_families": ["RESOURCE_NOVELTY"], "raw_reduction_points": 60.0,
+     "confidence": "HIGH", "start_utc": "2024-06-01T00:00:00Z", "end_utc": None,
+     "reason": "Approved onboarding to the PROJECT_ATLAS resource family."},
+    {"context_id": "ctx-mixed-travel", "user_id": "mixed-017",
+     "affected_signal_families": ["LOCATION_NOVELTY"], "raw_reduction_points": 70.0,
+     "confidence": "HIGH", "start_utc": "2024-06-01T00:00:00Z", "end_utc": "2024-06-05T00:00:00Z",
+     "reason": "Approved Paris travel covers location novelty only - independent anomalies are not discounted."},
 ]
 
 

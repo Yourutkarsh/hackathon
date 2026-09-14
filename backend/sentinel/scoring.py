@@ -6,13 +6,38 @@ or detector. Every risk number returned here comes directly from the engine.
 """
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import risk_engine_v5_1 as engine
 
-# Severities that constitute a "flagged" investigation for the audit trail.
-FLAGGED_SEVERITIES = {"ELEVATED", "HIGH", "CRITICAL"}
+from .iforest import score_event as iforest_score_event
+from .lifecycle import (
+    FLAGGED_SEVERITIES,
+    LEGACY_DETECTION_THRESHOLD,
+    SPEC_DETECTION_THRESHOLD,
+    SPEC_SEVERITIES,
+)
+
+# Ablation variants (compliance addendum §Tier-1).
+# Progression: rules -> +statistics -> +isolation forest -> full fusion, plus
+# single-component ablations of the fused model.
+ABLATION_VARIANTS = (
+    "RULES_ONLY",
+    "RULES_PLUS_STATS",
+    "RULES_STATS_IFOREST",
+    "FULL",
+    "TEMPORAL_OFF",
+    "CONTEXT_OFF",
+)
+# Backward-compatible aliases for the pre-V5.1 variant names.
+ABLATION_LEGACY_ALIASES = {
+    "NO_CONTEXT": "CONTEXT_OFF",
+    "NO_TEMPORAL": "TEMPORAL_OFF",
+    "NO_NOVELTY": "FULL",
+    "BEHAVIORAL_ONLY": "RULES_PLUS_STATS",
+}
 
 
 def _ts_iso(value: Any) -> str:
@@ -43,6 +68,22 @@ def to_engine_event(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 def _numeric_list(values: List[Any]) -> List[float]:
     return [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+
+
+# Cache for the population -> engine-shape conversion. The evaluation endpoint
+# scores every event against the same population, so converting it once per
+# population (keyed by stable event ids) avoids ~O(n^2) dict rebuilds.
+_POPULATION_ENGINE_CACHE: Dict[Any, List[Dict[str, Any]]] = {}
+
+
+def _population_engine(population_events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    key = tuple(e.get("event_id") for e in population_events if not e.get("quarantined"))
+    cached = _POPULATION_ENGINE_CACHE.get(key)
+    if cached is None:
+        cached = [to_engine_event(e) for e in population_events if not e.get("quarantined")]
+        _POPULATION_ENGINE_CACHE.clear()
+        _POPULATION_ENGINE_CACHE[key] = cached
+    return cached
 
 
 def make_baseline(user_doc: Dict[str, Any], prior_events: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -78,16 +119,23 @@ def _engine_contexts(contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
+def _max_present(values: List[Optional[float]]) -> float:
+    present = [float(v) for v in values if v is not None and math.isfinite(float(v))]
+    return max(present) if present else 0.0
+
+
 def score_event(
     user_doc: Dict[str, Any],
     target: Dict[str, Any],
     prior_events: List[Dict[str, Any]],
     contexts: Optional[List[Dict[str, Any]]] = None,
+    population_events: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Compute the full risk state for ``target`` using engine functions only.
 
     ``prior_events`` MUST be the strictly-prior trusted events (baseline). The
-    caller guarantees no current/future event is included.
+    caller guarantees no current/future event is included. ``population_events``
+    is the trusted population used only by the Isolation Forest fallback.
     """
     contexts = contexts or []
     baseline = make_baseline(user_doc, prior_events)
@@ -104,10 +152,21 @@ def score_event(
             float(engine_event["data_mb"]), baseline["data_mb_baseline"]
         )
 
+    # Real per-user Isolation Forest channel (chronological prior history, with
+    # a documented population fallback; never fabricated).
+    iforest = iforest_score_event(
+        engine_prior,
+        engine_event,
+        _population_engine(population_events) if population_events else [],
+    )
+    iforest_available = bool(iforest["available"])
+
     engine_event["rule_score"] = rule_result["rule_score"]
     engine_event["rule_available"] = rule_result["rule_available"]
     if statistical is not None:
         engine_event["statistical_score"] = statistical
+    if iforest_available:
+        engine_event["iforest_anomaly_score"] = iforest["raw_score"]
 
     # Temporal clustering over the trusted window (prior + target).
     window = engine_prior + [engine_event]
@@ -121,16 +180,24 @@ def score_event(
         contexts=_engine_contexts(contexts),
         resource_history=engine_prior,
         now_utc=engine_event["timestamp_utc"] or None,
+        iforest_q95=iforest.get("q95") if iforest_available else None,
+        iforest_q99=iforest.get("q99") if iforest_available else None,
     )
 
     score = engine.compute_final_risk_score(components)
     severity = engine.severity_for_score(score)
 
+    channels = {
+        "rules": rule_result["rule_score"] if rule_result["rule_available"] else None,
+        "statistical": statistical,
+        "iforest": iforest.get("scaled_score") if iforest_available else None,
+    }
+
     missing = list(target.get("missing_components") or [])
     confidence = engine.confidence_score(
         baseline_ready=len(prior_events) >= 3,
         timezone_available=bool(engine_event.get("user_timezone")),
-        iforest_available=False,
+        iforest_available=iforest_available,
         sensitivity_history_available=components.availability["sensitivity"],
         required_missing_fraction=len(missing) / 4.0,
     )
@@ -167,6 +234,15 @@ def score_event(
         "clusters": summaries,
         "incomplete": bool(target.get("incomplete")),
         "missing_components": missing,
+        "behavioral_channels": channels,
+        "iforest": iforest,
+        "ablation": ablation_scores(components.values, channels),
+        "detection": {
+            "spec": severity in SPEC_SEVERITIES,
+            "legacy": severity in FLAGGED_SEVERITIES,
+            "spec_threshold": SPEC_DETECTION_THRESHOLD,
+            "legacy_threshold": LEGACY_DETECTION_THRESHOLD,
+        },
         "evidence": {
             "target_event": {
                 "event_id": target.get("event_id"),
@@ -192,18 +268,34 @@ def score_event(
     }
 
 
-def ablation_scores(values: Dict[str, float]) -> Dict[str, Dict[str, Any]]:
-    """Recompute the final score under component-ablation variants (engine-only)."""
+def ablation_scores(
+    values: Dict[str, float],
+    channels: Optional[Dict[str, Optional[float]]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Recompute the final score under the V5.1 ablation variants (engine-only).
+
+    ``channels`` holds the behavioral sub-channel scores (rules / statistical /
+    iforest). The three behavioral-ladder variants rebuild the behavioral
+    component from those channels; ``FULL``/``TEMPORAL_OFF``/``CONTEXT_OFF``
+    ablate the fused model directly. The engine alone computes every number.
+    """
+    channels = channels or {}
+    rules = channels.get("rules")
+    statistical = channels.get("statistical")
+    iforest = channels.get("iforest")
     variants = {
+        "RULES_ONLY": {"behavioral_anomaly": _max_present([rules])},
+        "RULES_PLUS_STATS": {"behavioral_anomaly": _max_present([rules, statistical])},
+        "RULES_STATS_IFOREST": {
+            "behavioral_anomaly": _max_present([rules, statistical, iforest])
+        },
         "FULL": dict(values),
-        "NO_CONTEXT": {**values, "context_adjustment": 0.0},
-        "NO_TEMPORAL": {**values, "temporal_correlation": 0.0},
-        "NO_NOVELTY": {**values, "novelty": 0.0},
-        "BEHAVIORAL_ONLY": {"behavioral_anomaly": values.get("behavioral_anomaly", 0.0)},
+        "TEMPORAL_OFF": {**values, "temporal_correlation": 0.0},
+        "CONTEXT_OFF": {**values, "context_adjustment": 0.0},
     }
     out = {}
-    for name, v in variants.items():
-        score = engine.compute_final_risk_score(v)
+    for name in ABLATION_VARIANTS:
+        score = engine.compute_final_risk_score(variants[name])
         out[name] = {"score": score, "severity": engine.severity_for_score(score)}
     return out
 
